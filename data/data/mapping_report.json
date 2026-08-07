@@ -1,0 +1,29 @@
+{
+  "year": 2026,
+  "status": "ok",
+  "n_features": 25565,
+  "n_normalized": 25565,
+  "columns": {
+    "price": {
+      "col": "L01_008",
+      "score": 0.95
+    },
+    "yoy": {
+      "col": "L01_009",
+      "score": 0.95
+    },
+    "use": {
+      "col": "L01_002",
+      "score": 1.0
+    },
+    "muni_code": {
+      "col": "L01_001",
+      "score": 1.0
+    },
+    "address": {
+      "col": "L01_025",
+      "score": 1.0
+    }
+  },
+  "errors": []
+}
