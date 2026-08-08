@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>地価公示マップ</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#1b1f23;
+    --paper:#f7f5f0;
+    --line:#d8d3c8;
+    --rise:#c1443c;   /* 上昇 */
+    --rise-strong:#7a1f1a;
+    --fall:#2f6f8f;   /* 下落 */
+    --fall-strong:#12324a;
+    --flat:#c9c4b6;   /* 横ばい(0%付近) */
+  }
+  html,body{margin:0;height:100%;font-family:"Hiragino Sans","Yu Gothic",sans-serif;color:var(--ink);background:var(--paper);}
+  #map{position:absolute;inset:0;}
+  #panel{
+    position:absolute;top:14px;left:14px;z-index:1000;
+    background:rgba(247,245,240,0.96);border:1px solid var(--line);
+    border-radius:6px;padding:14px 16px;width:270px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.12);
+    font-size:13px;line-height:1.6;
+  }
+  #panel h1{font-size:15px;margin:0 0 4px;letter-spacing:.02em;}
+  #panel .sub{color:#6b6656;font-size:11px;margin-bottom:10px;}
+  #legend{display:flex;flex-direction:column;gap:4px;margin-top:8px;}
+  .legend-title{font-size:11px;color:#6b6656;margin-bottom:2px;}
+  #legend-gradient{
+    height:10px;border-radius:5px;
+    background:linear-gradient(to right, var(--fall-strong), var(--fall), var(--flat), var(--rise), var(--rise-strong));
+    border:1px solid rgba(0,0,0,0.06);
+  }
+  #legend-ticks{display:flex;justify-content:space-between;font-size:9px;color:#8a8578;margin-top:2px;}
+  #use-filter{display:flex;flex-direction:column;gap:3px;margin-top:10px;border-top:1px solid var(--line);padding-top:8px;}
+  .use-row{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;user-select:none;}
+  .use-row input{margin:0;accent-color:var(--ink);cursor:pointer;}
+  .use-row .n{margin-left:auto;color:#8a8578;font-size:10px;}
+  #count{margin-top:10px;font-size:11px;color:#6b6656;border-top:1px solid var(--line);padding-top:8px;}
+  #chart-panel{
+    position:absolute;bottom:14px;left:14px;z-index:1000;
+    background:rgba(247,245,240,0.96);border:1px solid var(--line);
+    border-radius:6px;padding:12px 14px;width:280px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.12);
+  }
+  #chart-panel h2{font-size:12px;margin:0 0 8px;letter-spacing:.02em;color:#6b6656;font-weight:600;}
+  #chart-panel .chart-sub{font-size:10px;color:#8a8578;margin-top:4px;}
+  #use-chart{max-height:150px;height:150px!important;}
+  #price-filter,#yoy-filter{margin-top:10px;border-top:1px solid var(--line);padding-top:8px;}
+  .filter-label{font-size:12px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;}
+  .reset-btn{
+    font-size:10px;font-weight:400;color:#6b6656;background:none;
+    border:1px solid var(--line);border-radius:3px;padding:2px 7px;
+    cursor:pointer;font-family:inherit;
+  }
+  .reset-btn:hover{background:var(--line);}
+  .filter-toggle{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;}
+  .filter-toggle input{margin:0;accent-color:var(--ink);cursor:pointer;}
+  #price-filter.filter-off .dual-range,
+  #price-filter.filter-off .price-range-values,
+  #yoy-filter.filter-off .dual-range,
+  #yoy-filter.filter-off .price-range-values{opacity:0.35;pointer-events:none;}
+  .price-range-values{font-size:11px;color:#6b6656;margin-bottom:6px;display:flex;align-items:center;gap:4px;}
+  .range-num{
+    width:64px;font-size:11px;padding:2px 4px;border:1px solid var(--line);
+    border-radius:3px;background:#fff;color:var(--ink);font-family:inherit;
+  }
+  .range-num:focus{outline:1px solid var(--ink);}
+  .dual-range{position:relative;height:22px;}
+  .dual-range input[type=range]{
+    position:absolute;left:0;right:0;top:8px;width:100%;margin:0;
+    -webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;
+  }
+  .dual-range input[type=range]::-webkit-slider-runnable-track{
+    height:3px;background:var(--line);border-radius:2px;
+  }
+  .dual-range input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;pointer-events:auto;
+    width:13px;height:13px;border-radius:50%;background:var(--ink);
+    margin-top:-5px;cursor:pointer;border:2px solid var(--paper);
+  }
+  .dual-range input[type=range]::-moz-range-track{height:3px;background:var(--line);border-radius:2px;}
+  .dual-range input[type=range]::-moz-range-thumb{
+    pointer-events:auto;width:11px;height:11px;border-radius:50%;
+    background:var(--ink);cursor:pointer;border:2px solid var(--paper);
+  }
+  .leaflet-popup-content{font-size:13px;line-height:1.6;min-width:240px;}
+  .popup-addr{font-weight:600;margin-bottom:4px;}
+  .popup-row{display:flex;justify-content:space-between;gap:12px;}
+  .popup-chart-wrap{height:110px;margin-top:8px;}
+  #loading{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    z-index:2000;background:rgba(247,245,240,0.95);border:1px solid var(--line);
+    border-radius:6px;padding:10px 18px;font-size:13px;
+  }
+  #year-panel{
+    position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:1000;
+    background:rgba(247,245,240,0.96);border:1px solid var(--line);
+    border-radius:6px;padding:10px 18px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.12);
+    display:flex;align-items:center;gap:12px;width:480px;
+  }
+  #year-play{
+    flex:none;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);
+    background:#fff;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;
+  }
+  #year-play:hover{background:var(--line);}
+  #year-slider-wrap{flex:1;display:flex;flex-direction:column;gap:2px;}
+  #year-label{font-size:13px;font-weight:600;text-align:center;letter-spacing:.02em;}
+  #year-slider{width:100%;accent-color:var(--ink);cursor:pointer;}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="loading">読み込み中…</div>
+
+<div id="panel">
+  <h1>地価公示マップ</h1>
+  <div class="sub">1983年〜2026年 地価公示（標準地）</div>
+  <div id="legend">
+    <div class="legend-title">対前年変動率</div>
+    <div id="legend-gradient"></div>
+    <div id="legend-ticks"></div>
+  </div>
+  <div id="use-filter"></div>
+  <div id="price-filter">
+    <div class="filter-label">
+      <label class="filter-toggle">
+        <input type="checkbox" id="price-enabled" checked>
+        価格帯（円/m²）
+      </label>
+      <button class="reset-btn" id="price-reset" type="button">リセット</button>
+    </div>
+    <div class="price-range-values">
+      <input type="number" id="price-min-input" class="range-num"> 〜
+      <input type="number" id="price-max-input" class="range-num">
+    </div>
+    <div class="dual-range">
+      <input type="range" id="price-min" step="1">
+      <input type="range" id="price-max" step="1">
+    </div>
+  </div>
+  <div id="yoy-filter">
+    <div class="filter-label">
+      <label class="filter-toggle">
+        <input type="checkbox" id="yoy-enabled" checked>
+        対前年変動率（%）
+      </label>
+      <button class="reset-btn" id="yoy-reset" type="button">リセット</button>
+    </div>
+    <div class="price-range-values">
+      <input type="number" id="yoy-min-input" class="range-num" step="0.1"> 〜
+      <input type="number" id="yoy-max-input" class="range-num" step="0.1">
+    </div>
+    <div class="dual-range">
+      <input type="range" id="yoy-min" step="0.1">
+      <input type="range" id="yoy-max" step="0.1">
+    </div>
+  </div>
+  <div id="count">読み込み中…</div>
+</div>
+
+<div id="chart-panel">
+  <h2>用途区分別 平均公示価格（表示中の地点）</h2>
+  <div style="height:150px;">
+    <canvas id="use-chart"></canvas>
+  </div>
+  <div class="chart-sub" id="chart-sub"></div>
+</div>
+
+<div id="year-panel">
+  <button id="year-play" type="button" title="自動再生">▶</button>
+  <div id="year-slider-wrap">
+    <div id="year-label">-</div>
+    <input type="range" id="year-slider" step="1">
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script>
+const map = L.map('map', { preferCanvas: true }).setView([36.2, 138.0], 6);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  maxZoom: 19
+}).addTo(map);
+
+// 変動率(%) -> 色。連続グラデーション(下落強〜横ばい〜上昇強)。
+// ±YOY_MAX%を境に頭打ちにする(地価公示の実務的なレンジを踏まえ10%に設定)。
+// 色はCSS変数の値をそのままJS側にも直書き(getComputedStyle依存のタイミング問題を避けるため)。
+const YOY_MAX = 10;
+const COLOR_STOPS = [
+  { t: -1,   hex: '#12324a' },  // --fall-strong
+  { t: -0.5, hex: '#2f6f8f' },  // --fall
+  { t: 0,    hex: '#c9c4b6' },  // --flat
+  { t: 0.5,  hex: '#c1443c' },  // --rise
+  { t: 1,    hex: '#7a1f1a' },  // --rise-strong
+];
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function rgbToHex([r,g,b]) {
+  return '#' + [r,g,b].map(v => Math.round(v).toString(16).padStart(2,'0')).join('');
+}
+function lerpColor(c1, c2, f) {
+  return c1.map((v,i) => v + (c2[i]-v)*f);
+}
+function colorForT(t) {
+  t = Math.max(-1, Math.min(1, t));
+  for (let i = 0; i < COLOR_STOPS.length - 1; i++) {
+    const a = COLOR_STOPS[i], b = COLOR_STOPS[i+1];
+    if (t >= a.t && t <= b.t) {
+      const f = (t - a.t) / (b.t - a.t);
+      return rgbToHex(lerpColor(hexToRgb(a.hex), hexToRgb(b.hex), f));
+    }
+  }
+  return COLOR_STOPS[COLOR_STOPS.length-1].hex;
+}
+function colorForYoy(yoy) {
+  if (yoy === null || yoy === undefined) return '#c9c4b6';
+  return colorForT(yoy / YOY_MAX);
+}
+
+function radiusForYoy(yoy) {
+  const a = Math.min(Math.abs(yoy || 0), 15);
+  return 4 + a * 0.4;
+}
+
+function yenFmt(n) {
+  return n.toLocaleString('ja-JP');
+}
+
+document.getElementById('legend-ticks').innerHTML =
+  [-YOY_MAX, -YOY_MAX/2, 0, YOY_MAX/2, YOY_MAX]
+    .map((v,i,arr) => `<span>${i===arr.length-1?'+':''}${v}%${i===arr.length-1?'以上':(i===0?'以下':'')}</span>`)
+    .join('');
+
+const clusterGroup = L.markerClusterGroup({
+  disableClusteringAtZoom: 15,
+  maxClusterRadius: 45,
+  spiderfyOnMaxZoom: true,
+  iconCreateFunction: function(cluster) {
+    const children = cluster.getAllChildMarkers();
+    const yoys = children.map(m => m.options.__yoy).filter(v => v !== null && v !== undefined);
+    const avg = yoys.length ? yoys.reduce((a,b) => a+b, 0) / yoys.length : null;
+    const color = colorForYoy(avg);
+    const count = children.length;
+    const size = count < 10 ? 32 : count < 100 ? 38 : 44;
+    return L.divIcon({
+      html: `<div style="
+        background:${color};
+        width:${size}px;height:${size}px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;
+        color:#fff;font-size:11px;font-weight:600;
+        border:2px solid rgba(255,255,255,0.85);
+        box-shadow:0 1px 4px rgba(0,0,0,0.3);
+      ">${count}</div>`,
+      className: '',
+      iconSize: L.point(size, size),
+    });
+  },
+});
+
+let allMarkers = []; // {marker, use, address, series}
+const activeUses = new Set();
+let priceLoMin, priceLoMax;
+let curPriceMin = -Infinity, curPriceMax = Infinity;
+let curYoyMin = -Infinity, curYoyMax = Infinity;
+let yoyDataMin, yoyDataMax;
+let priceFilterOn = true, yoyFilterOn = true;
+let useChart = null;
+let SERIES_YEARS = [];
+let currentYearIdx = 0;
+let playTimer = null;
+
+// series配列(年インデックス)から価格・変動率を取り出すヘルパー。
+// 未選定年はnullなので、その場合はその年に地点が存在しないものとして扱う。
+function priceAtYear(series, idx) {
+  return (idx >= 0 && idx < series.length) ? series[idx] : null;
+}
+function yoyAtYear(series, idx) {
+  if (idx <= 0) return null;
+  const cur = series[idx], prev = series[idx - 1];
+  if (cur === null || prev === null) return null;
+  // 前年価格が極端に低い(数百円/m²未満)場合、変動率が数百〜数千%に
+  // 跳ね上がり実態を表さないため、信頼できる変動率とはみなさない。
+  if (prev < 1000) return null;
+  return ((cur - prev) / prev) * 100;
+}
+const USE_COLORS = {
+  '住宅地': '#8a8578', '商業地': '#c1443c', '工業地': '#2f6f8f',
+  '準工業地': '#5c8a6e', '宅地見込地': '#a67c52', '市街化調整区域内宅地': '#9b7cb6',
+  '林地': '#4a7a4a',
+};
+function colorForUse(u) { return USE_COLORS[u] || '#b0aa98'; }
+
+function logToPrice(v) {
+  return Math.pow(10, priceLoMin + (v / 1000) * (priceLoMax - priceLoMin));
+}
+function priceToLog(price) {
+  const clamped = Math.max(logToPrice(0), Math.min(logToPrice(1000), price));
+  return ((Math.log10(clamped) - priceLoMin) / (priceLoMax - priceLoMin)) * 1000;
+}
+
+function setupPriceFilter(points) {
+  // 全年分の系列から非nullの価格を集めて範囲を決める(バブル期の高値等もスライダー内に収まるように)
+  // 件数が数十万〜百万規模になりうるため、スプレッド構文のMath.min(...)は使わずループで求める。
+  let priceMin = Infinity, priceMax = -Infinity;
+  points.forEach(p => p.series.forEach(v => {
+    if (v === null) return;
+    if (v < priceMin) priceMin = v;
+    if (v > priceMax) priceMax = v;
+  }));
+  priceLoMin = Math.log10(priceMin);
+  priceLoMax = Math.log10(priceMax);
+  curPriceMin = priceMin;
+  curPriceMax = priceMax;
+
+  const minEl = document.getElementById('price-min');
+  const maxEl = document.getElementById('price-max');
+  const minInput = document.getElementById('price-min-input');
+  const maxInput = document.getElementById('price-max-input');
+  [minEl, maxEl].forEach(el => { el.min = 0; el.max = 1000; });
+  minEl.value = 0;
+  maxEl.value = 1000;
+  minInput.min = Math.round(priceMin);
+  maxInput.max = Math.round(priceMax);
+
+  const enabledCb = document.getElementById('price-enabled');
+  const panelEl = document.getElementById('price-filter');
+  enabledCb.addEventListener('change', () => {
+    priceFilterOn = enabledCb.checked;
+    panelEl.classList.toggle('filter-off', !priceFilterOn);
+    applyFilter();
+  });
+
+  function updateFields() {
+    minInput.value = Math.round(curPriceMin);
+    maxInput.value = Math.round(curPriceMax);
+  }
+  updateFields();
+
+  document.getElementById('price-reset').addEventListener('click', () => {
+    curPriceMin = priceMin;
+    curPriceMax = priceMax;
+    minEl.value = 0;
+    maxEl.value = 1000;
+    updateFields();
+    applyFilter();
+  });
+
+  minEl.addEventListener('input', () => {
+    if (parseInt(minEl.value) > parseInt(maxEl.value)) minEl.value = maxEl.value;
+    curPriceMin = logToPrice(parseInt(minEl.value));
+    updateFields();
+    applyFilter();
+  });
+  maxEl.addEventListener('input', () => {
+    if (parseInt(maxEl.value) < parseInt(minEl.value)) maxEl.value = minEl.value;
+    curPriceMax = logToPrice(parseInt(maxEl.value));
+    updateFields();
+    applyFilter();
+  });
+
+  minInput.addEventListener('input', () => {
+    const raw = parseFloat(minInput.value);
+    if (isNaN(raw)) return;
+    let v = Math.max(priceMin, Math.min(priceMax, raw));
+    if (v > curPriceMax) v = curPriceMax;
+    curPriceMin = v;
+    minEl.value = priceToLog(v);
+    applyFilter();
+  });
+  maxInput.addEventListener('input', () => {
+    const raw = parseFloat(maxInput.value);
+    if (isNaN(raw)) return;
+    let v = Math.max(priceMin, Math.min(priceMax, raw));
+    if (v < curPriceMin) v = curPriceMin;
+    curPriceMax = v;
+    maxEl.value = priceToLog(v);
+    applyFilter();
+  });
+}
+
+// currentYearIdx時点の変動率レンジを、実際にその年のデータから計算する。
+// (以前は44年分全体の最大値をスライダーに使っていたため、今見ている年には
+//  存在しない範囲まで指定できてしまい、絞り込むと0件になる問題があった)
+function computeYoyRangeForYear(idx) {
+  let mn = Infinity, mx = -Infinity, found = false;
+  allMarkers.forEach(e => {
+    const y = yoyAtYear(e.series, idx);
+    if (y === null) return;
+    found = true;
+    if (y < mn) mn = y;
+    if (y > mx) mx = y;
+  });
+  if (!found) return null;
+  mn = Math.max(mn, -90);
+  mx = Math.min(mx, 300);
+  return { min: Math.floor(mn * 10) / 10, max: Math.ceil(mx * 10) / 10 };
+}
+
+function updateYoyRangeForCurrentYear() {
+  const panelEl = document.getElementById('yoy-filter');
+  const range = computeYoyRangeForYear(currentYearIdx);
+  if (!range) {
+    // 最初の年(1983年)は前年が存在しないため変動率そのものが定義できない
+    panelEl.style.display = 'none';
+    yoyFilterOn = false;
+    return;
+  }
+  panelEl.style.display = '';
+  yoyDataMin = range.min;
+  yoyDataMax = range.max;
+  curYoyMin = yoyDataMin;
+  curYoyMax = yoyDataMax;
+
+  const minEl = document.getElementById('yoy-min');
+  const maxEl = document.getElementById('yoy-max');
+  const minInput = document.getElementById('yoy-min-input');
+  const maxInput = document.getElementById('yoy-max-input');
+  [minEl, maxEl].forEach(el => { el.min = yoyDataMin; el.max = yoyDataMax; });
+  minEl.value = yoyDataMin;
+  maxEl.value = yoyDataMax;
+  minInput.min = yoyDataMin;
+  minInput.max = yoyDataMax;
+  maxInput.min = yoyDataMin;
+  maxInput.max = yoyDataMax;
+  minInput.value = yoyDataMin.toFixed(1);
+  maxInput.value = yoyDataMax.toFixed(1);
+}
+
+function setupYoyFilter(points) {
+  updateYoyRangeForCurrentYear();
+  if (yoyDataMin === undefined) return; // 初年度でデータが無い場合はここで終了
+
+  const minEl = document.getElementById('yoy-min');
+  const maxEl = document.getElementById('yoy-max');
+  const minInput = document.getElementById('yoy-min-input');
+  const maxInput = document.getElementById('yoy-max-input');
+
+  const enabledCb = document.getElementById('yoy-enabled');
+  const panelEl = document.getElementById('yoy-filter');
+  enabledCb.addEventListener('change', () => {
+    yoyFilterOn = enabledCb.checked;
+    panelEl.classList.toggle('filter-off', !yoyFilterOn);
+    applyFilter();
+  });
+
+  function updateFields() {
+    minInput.value = curYoyMin.toFixed(1);
+    maxInput.value = curYoyMax.toFixed(1);
+  }
+  updateFields();
+
+  document.getElementById('yoy-reset').addEventListener('click', () => {
+    curYoyMin = yoyDataMin;
+    curYoyMax = yoyDataMax;
+    minEl.value = yoyDataMin;
+    maxEl.value = yoyDataMax;
+    updateFields();
+    applyFilter();
+  });
+
+  minEl.addEventListener('input', () => {
+    if (parseFloat(minEl.value) > parseFloat(maxEl.value)) minEl.value = maxEl.value;
+    curYoyMin = parseFloat(minEl.value);
+    updateFields();
+    applyFilter();
+  });
+  maxEl.addEventListener('input', () => {
+    if (parseFloat(maxEl.value) < parseFloat(minEl.value)) maxEl.value = minEl.value;
+    curYoyMax = parseFloat(maxEl.value);
+    updateFields();
+    applyFilter();
+  });
+
+  minInput.addEventListener('input', () => {
+    const raw = parseFloat(minInput.value);
+    if (isNaN(raw)) return;
+    let v = Math.max(yoyDataMin, Math.min(yoyDataMax, raw));
+    if (v > curYoyMax) v = curYoyMax;
+    curYoyMin = v;
+    minEl.value = v;
+    applyFilter();
+  });
+  maxInput.addEventListener('input', () => {
+    const raw = parseFloat(maxInput.value);
+    if (isNaN(raw)) return;
+    let v = Math.max(yoyDataMin, Math.min(yoyDataMax, raw));
+    if (v < curYoyMin) v = curYoyMin;
+    curYoyMax = v;
+    maxEl.value = v;
+    applyFilter();
+  });
+}
+
+function buildUseFilter(points) {
+  const counts = {};
+  points.forEach(p => { counts[p.use] = (counts[p.use] || 0) + 1; });
+  // 件数の多い順に並べる
+  const uses = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  uses.forEach(u => activeUses.add(u));
+
+  const container = document.getElementById('use-filter');
+  container.innerHTML = uses.map(u => `
+    <label class="use-row">
+      <input type="checkbox" value="${u}" checked>
+      <span>${u}</span>
+      <span class="n">${counts[u].toLocaleString('ja-JP')}</span>
+    </label>
+  `).join('');
+
+  container.querySelectorAll('input').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) activeUses.add(cb.value);
+      else activeUses.delete(cb.value);
+      applyFilter();
+    });
+  });
+}
+
+function applyFilter() {
+  clusterGroup.clearLayers();
+  const matched = [];
+  const visible = [];
+  allMarkers.forEach((entry) => {
+    const price = priceAtYear(entry.series, currentYearIdx);
+    if (price === null) return; // その年にまだ選定されていない地点
+    const yoy = yoyAtYear(entry.series, currentYearIdx);
+    const priceOk = !priceFilterOn || (price >= curPriceMin && price <= curPriceMax);
+    // yoyフィルタが初期値(全範囲)のままの時だけ「データなし」を素通りさせる。
+    // 範囲を絞り込んでいる時は、データなしの地点はその範囲に該当するとは
+    // 言えないため除外する(以前は常に素通りしており、絞り込んでも
+    // 無関係なnull地点が混ざって見える不具合があった)。
+    const yoyIsFullRange = curYoyMin <= yoyDataMin + 1e-9 && curYoyMax >= yoyDataMax - 1e-9;
+    const yoyOk = !yoyFilterOn
+      || (yoy === null && yoyIsFullRange)
+      || (yoy !== null && yoy >= curYoyMin && yoy <= curYoyMax);
+    if (activeUses.has(entry.use) && priceOk && yoyOk) {
+      entry.marker.setStyle({
+        radius: radiusForYoy(yoy),
+        fillColor: colorForYoy(yoy),
+      });
+      entry.marker.options.__yoy = yoy;
+      matched.push(entry.marker);
+      visible.push({ use: entry.use, price });
+    }
+  });
+  clusterGroup.addLayers(matched); // 1件ずつaddLayerするより大幅に高速
+  document.getElementById('count').textContent =
+    `${matched.length.toLocaleString('ja-JP')} / ${allMarkers.length.toLocaleString('ja-JP')} 地点`;
+  updateChart(visible);
+}
+
+function updateChart(visible) {
+  const sums = {}, counts = {};
+  visible.forEach(({ use, price }) => {
+    sums[use] = (sums[use] || 0) + price;
+    counts[use] = (counts[use] || 0) + 1;
+  });
+  const labels = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const avgs = labels.map(u => Math.round(sums[u] / counts[u]));
+  const bg = labels.map(colorForUse);
+
+  if (!useChart) {
+    const ctx = document.getElementById('use-chart').getContext('2d');
+    useChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ data: avgs, backgroundColor: bg, borderRadius: 3 }] },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${yenFmt(ctx.parsed.x)} 円/m²（${counts[labels[ctx.dataIndex]].toLocaleString('ja-JP')}地点）`
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { callback: (v) => (v >= 10000 ? (v/10000).toFixed(0)+'万' : v), font: { size: 10 } } },
+          y: { ticks: { font: { size: 11 } } }
+        }
+      }
+    });
+  } else {
+    useChart.data.labels = labels;
+    useChart.data.datasets[0].data = avgs;
+    useChart.data.datasets[0].backgroundColor = bg;
+    useChart.update();
+  }
+  document.getElementById('chart-sub').textContent =
+    `対象: ${visible.length.toLocaleString('ja-JP')} 地点（フィルタ反映）`;
+}
+
+let popupChart = null;
+
+function buildSparklineData(series) {
+  // Chart.jsは null をそのまま「データなし(線が途切れる)」として扱える
+  return series.map(v => v === null ? null : v);
+}
+
+fetch('data/points.json')
+  .then(r => r.json())
+  .then(data => {
+    document.getElementById('loading').style.display = 'none';
+
+    SERIES_YEARS = data.series_years;
+    const points = data.points;
+    currentYearIdx = SERIES_YEARS.length - 1; // 初期表示は最新年
+
+    points.forEach(p => {
+      const marker = L.circleMarker([p.lat, p.lng], {
+        radius: 4,
+        fillColor: '#c9c4b6',
+        color: 'rgba(60,55,45,0.55)',
+        weight: 1,
+        fillOpacity: 0.9,
+        __yoy: null,
+      });
+
+      // ポップアップの中身はクリックして開く瞬間に、その時点で選択中の年で組み立てる
+      marker.bindPopup('', { minWidth: 260 });
+      marker.on('popupopen', (e) => {
+        const price = priceAtYear(p.series, currentYearIdx);
+        const yoy = yoyAtYear(p.series, currentYearIdx);
+        const yoyText = (yoy === null) ? '—' : `${yoy > 0 ? '+' : ''}${yoy.toFixed(1)}%`;
+        const yoyColor = colorForYoy(yoy);
+        const priceText = (price === null) ? 'この年は未選定' : `${yenFmt(price)} 円/m²`;
+        e.popup.setContent(`
+          <div class="popup-addr">${p.address || p.id}</div>
+          <div class="popup-row"><span>年</span><span>${SERIES_YEARS[currentYearIdx]}年</span></div>
+          <div class="popup-row"><span>用途</span><span>${p.use}</span></div>
+          <div class="popup-row"><span>公示価格</span><span>${priceText}</span></div>
+          <div class="popup-row"><span>対前年変動率</span><span style="color:${yoyColor};font-weight:600;">${yoyText}</span></div>
+          <div class="popup-chart-wrap"><canvas id="popup-chart"></canvas></div>
+        `);
+        e.popup.update();
+
+        if (popupChart) { popupChart.destroy(); popupChart = null; }
+        const ctx = document.getElementById('popup-chart');
+        if (!ctx) return;
+        const pointRadii = SERIES_YEARS.map((_, i) => i === currentYearIdx ? 4 : 0);
+        popupChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: SERIES_YEARS,
+            datasets: [{
+              data: buildSparklineData(p.series),
+              borderColor: '#2f6f8f',
+              backgroundColor: 'rgba(47,111,143,0.08)',
+              fill: true,
+              borderWidth: 1.5,
+              tension: 0.15,
+              spanGaps: false,
+              pointRadius: pointRadii,
+              pointBackgroundColor: '#c1443c',
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  title: (items) => `${items[0].label}年`,
+                  label: (item) => item.parsed.y === null ? '未選定' : `${yenFmt(item.parsed.y)} 円/m²`,
+                }
+              }
+            },
+            scales: {
+              x: {
+                ticks: { maxTicksLimit: 6, font: { size: 9 } },
+                grid: { display: false },
+              },
+              y: {
+                ticks: {
+                  maxTicksLimit: 4, font: { size: 9 },
+                  callback: (v) => (v >= 10000 ? (v/10000).toFixed(0)+'万' : v),
+                },
+              },
+            },
+          },
+        });
+      });
+
+      marker.on('popupclose', () => {
+        if (popupChart) { popupChart.destroy(); popupChart = null; }
+      });
+
+      allMarkers.push({ marker, use: p.use, series: p.series });
+    });
+
+    buildUseFilter(points);
+    setupPriceFilter(points);
+    setupYoyFilter(points);
+    setupYearSlider();
+    applyFilter();
+    map.addLayer(clusterGroup);
+  })
+  .catch(err => {
+    document.getElementById('loading').textContent = 'データの読み込みに失敗しました';
+    console.error(err);
+  });
+
+function setupYearSlider() {
+  const slider = document.getElementById('year-slider');
+  const label = document.getElementById('year-label');
+  const playBtn = document.getElementById('year-play');
+
+  slider.min = 0;
+  slider.max = SERIES_YEARS.length - 1;
+  slider.value = currentYearIdx;
+
+  function updateLabel() {
+    label.textContent = `${SERIES_YEARS[currentYearIdx]}年`;
+  }
+  updateLabel();
+
+  slider.addEventListener('input', () => {
+    currentYearIdx = parseInt(slider.value);
+    updateLabel();
+    updateYoyRangeForCurrentYear();
+    applyFilter();
+  });
+
+  playBtn.addEventListener('click', () => {
+    if (playTimer) {
+      clearInterval(playTimer);
+      playTimer = null;
+      playBtn.textContent = '▶';
+      return;
+    }
+    playBtn.textContent = '⏸';
+    playTimer = setInterval(() => {
+      currentYearIdx++;
+      if (currentYearIdx > SERIES_YEARS.length - 1) currentYearIdx = 0; // 最後まで行ったら最初に戻る
+      slider.value = currentYearIdx;
+      updateLabel();
+      updateYoyRangeForCurrentYear();
+      applyFilter();
+    }, 700);
+  });
+}
+</script>
+</body>
+</html>

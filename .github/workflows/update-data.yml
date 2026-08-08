@@ -1,0 +1,59 @@
+name: 地価公示データ更新
+
+# 地価公示は例年3月下旬に発表されるため、4月上旬(発表から数日後を見込む)に
+# 自動実行する。加えて、手動実行(年を指定しての再取得・バックフィル)にも対応。
+on:
+  schedule:
+    # UTC 21:00 4/1 = JST 6:00 4/2
+    - cron: '0 21 1 4 *'
+  workflow_dispatch:
+    inputs:
+      year:
+        description: '対象年(空欄なら実行年を自動使用)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Python環境をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 依存パッケージをインストール
+        run: pip install requests
+
+      - name: 対象年を決定
+        id: year
+        run: |
+          if [ -n "${{ github.event.inputs.year }}" ]; then
+            echo "year=${{ github.event.inputs.year }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "year=$(date +%Y)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: データ取得・正規化(fetch_data.py)
+        run: python fetch_data.py --year ${{ steps.year.outputs.year }}
+        # 検証(件数・列推定スコア・価格系列の年整合性など)に失敗した場合、
+        # fetch_data.pyはexit code 1で終了しワークフローがここで止まる。
+        # これにより不完全・不正なデータが誤ってコミットされることを防ぐ。
+
+      - name: 差分があればコミット・push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/points.json data/mapping_report.json
+          if git diff --staged --quiet; then
+            echo "変更なし。コミットをスキップします。"
+          else
+            git commit -m "地価公示データ更新: ${{ steps.year.outputs.year }}年"
+            git push
+          fi
